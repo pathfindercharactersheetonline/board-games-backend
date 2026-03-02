@@ -1,0 +1,58 @@
+from pydantic import BaseModel, Field
+from datetime import datetime
+from typing import List, Optional
+
+# --- СХЕМЫ ПОЛЬЗОВАТЕЛЕЙ ---
+
+class UserBase(BaseModel):
+    email: str
+    full_name: str
+    role: str = "игрок"
+
+class UserShort(BaseModel):
+    id: int
+    full_name: str
+    email: str
+    role: str
+
+    class Config:
+        from_attributes = True
+
+class User(UserBase):
+    id: int
+    
+    class Config:
+        from_attributes = True
+
+class UserUpdate(BaseModel):
+    full_name: str = Field(..., min_length=2, max_length=100)
+
+# --- СХЕМЫ ИГР ---
+
+class GameBase(BaseModel):
+    title: str = Field(..., example="D&D: Шахта Фанделвера")
+    master_name: str = Field(..., example="Алексей С.")
+    image_url: str = Field(..., example="https://example.com/image.jpg")
+    description: str = Field(..., example="Описание в формате Markdown")
+    max_players: int = Field(..., gt=0, example=6)
+    date_time: datetime
+
+class GameCreate(GameBase):
+    pass
+
+class Game(GameBase):
+    id: int
+    current_players: int = 0
+    booked_users: List[UserShort] = [] # Ссылается на UserShort, объявленный выше
+
+    class Config:
+        from_attributes = True
+
+# --- СХЕМЫ ЗАПИСЕЙ ---
+
+class BookingCreate(BaseModel):
+    game_id: int
+
+class StatusResponse(BaseModel):
+    status: str
+    message: str

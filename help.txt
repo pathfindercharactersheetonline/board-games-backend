@@ -1,0 +1,19 @@
+Запусти сервер:
+uvicorn main:app --reload
+
+Перейти в виртуальное окружение:
+.\venv\Scripts\activate
+Выйти из виртуального окружения:
+deactivate
+
+Запуск БД (сначала от имени админа запусти докер desktop):
+docker-compose up -d
+
+Пишем SQL:
+docker exec -it board_games_db psql -U user -d board_games
+
+Выходим из SQL:
+\q
+
+Создаем админа для тестов:
+python seed.py
