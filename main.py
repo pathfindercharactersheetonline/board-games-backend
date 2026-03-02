@@ -8,6 +8,15 @@ import models, schemas
 from database import engine, get_db
 from urllib.parse import urlencode
 
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
+# --- КОНФИГУРАЦИЯ YANDEX ---
+YANDEX_REDIRECT_URI = "http://127.0.0.1:8000/api/v1/auth/yandex/callback"
+YANDEX_CLIENT_ID = os.getenv("YANDEX_CLIENT_ID")
+YANDEX_CLIENT_SECRET = os.getenv("YANDEX_CLIENT_SECRET")
+
 # Инициализация БД (создание таблиц)
 models.Base.metadata.create_all(bind=engine)
 
@@ -17,10 +26,6 @@ app = FastAPI(
     version="1.3.0"
 )
 
-# --- КОНФИГУРАЦИЯ YANDEX ---
-YANDEX_CLIENT_ID = "4262c97f78ce4de791cc33920aa5f520"
-YANDEX_CLIENT_SECRET = "10b8412379494ff880cfe6cffa70c244"
-YANDEX_REDIRECT_URI = "http://127.0.0.1:8000/api/v1/auth/yandex/callback"
 
 # --- DEPENDENCIES (Проверка полномочий) ---
 
