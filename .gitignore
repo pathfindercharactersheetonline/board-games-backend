@@ -1,0 +1,19 @@
+# Окружение и зависимости
+venv/
+.venv/
+env/
+__pycache__/
+*.pyc
+
+# Секреты и локальные настройки
+.env
+*.db
+.pytest_cache/
+
+# Миграции (храним только структуру, не кэш)
+migrations/versions/*.pyc
+
+# Системные файлы
+.vscode/
+.idea/
+.DS_Store
