@@ -17,3 +17,9 @@ docker exec -it board_games_db psql -U user -d board_games
 
 Создаем админа для тестов:
 python seed.py
+
+Пушим в git:
+git branch -M main
+git add .
+git commit -m "Backend with Yandex OAuth and DB working"
+git push -u origin main
