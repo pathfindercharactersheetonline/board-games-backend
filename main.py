@@ -8,6 +8,9 @@ import models, schemas
 from database import engine, get_db
 from urllib.parse import urlencode
 
+from fastapi import FastAPI, Depends, HTTPException, Query, status, Header
+from fastapi.middleware.cors import CORSMiddleware # Импортируем Middleware
+
 import os
 from dotenv import load_dotenv
 load_dotenv()
@@ -26,6 +29,20 @@ app = FastAPI(
     version="1.3.0"
 )
 
+# --- НАСТРОЙКА CORS ---
+# Список разрешенных адресов (откуда приходят запросы)
+origins = [
+    "http://localhost:5173",    # Твой Vite/React локально
+    "http://127.0.0.1:5173",   # Альтернативный адрес фронтенда
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,            # Разрешаем запросы с этих адресов
+    allow_credentials=True,           # Разрешаем передачу Cookies/Auth-заголовков
+    allow_methods=["*"],              # Разрешаем все методы (GET, POST, PATCH, DELETE)
+    allow_headers=["*"],              # Разрешаем любые заголовки (включая наш X-User-Id)
+)
 
 # --- DEPENDENCIES (Проверка полномочий) ---
 
