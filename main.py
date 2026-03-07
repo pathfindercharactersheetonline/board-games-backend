@@ -9,6 +9,7 @@ from urllib.parse import urlencode
 from fastapi.middleware.cors import CORSMiddleware
 import os
 from dotenv import load_dotenv
+from datetime import datetime, timedelta # Добавляем timedelta
 
 load_dotenv()
 
@@ -147,7 +148,7 @@ def delete_game(
         raise HTTPException(status_code=404, detail="Игра не найдена")
     
     # Проверка владельца по ID
-    if current_user.role != "администратор" and db_game.master_id != current_user.id:
+    if current_user.role != "администратор" or db_game.master_id != current_user.id:
         raise HTTPException(status_code=403, detail="Вы не можете удалить чужую игру")
         
     db.delete(db_game)
@@ -200,7 +201,29 @@ def change_role(
     return {"status": "success"}
 
 @app.delete("/api/v1/admin/cleanup-old-games", tags=["Admin"])
-def cleanup_old_games(db: Session = Depends(get_db), admin: models.User = Depends(get_admin_only)):
-    deleted = db.query(models.Game).filter(models.Game.date_time < datetime.now()).delete()
+def cleanup_old_games(
+    days: int = Query(30, ge=0, description="Удалить игры старше этого количества дней"),
+    db: Session = Depends(get_db), 
+    admin: models.User = Depends(get_admin_only)
+):
+    """
+    Удаляет игры, которые прошли более чем N дней назад.
+    По умолчанию: удаляет игры старше 30 дней.
+    Если передать days=0, удалятся все прошедшие игры.
+    """
+    # Вычисляем пороговую дату (сегодня - N дней)
+    threshold_date = datetime.now() - timedelta(days=days)
+    
+    # Фильтруем игры, которые были проведены ДО этой даты
+    query = db.query(models.Game).filter(models.Game.date_time < threshold_date)
+    deleted = query.count()
+    
+    query.delete(synchronize_session=False)
     db.commit()
-    return {"detail": f"Удалено игр: {deleted}"}
+    
+    return {
+        "status": "success",
+        "message": f"Очистка завершена",
+        "deleted_count": deleted,
+        "threshold_date": threshold_date.strftime("%Y-%m-%d %H:%M")
+    }
