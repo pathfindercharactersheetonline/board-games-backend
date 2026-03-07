@@ -7,7 +7,6 @@ class User(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, index=True, nullable=False)
-    full_name = Column(String)
     role = Column(String, default="игрок")  # игрок, мастер, администратор
     
     # Связи

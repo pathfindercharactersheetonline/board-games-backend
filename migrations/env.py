@@ -12,6 +12,9 @@ sys.path.insert(0, dirname(dirname(abspath(__file__))))
 from database import Base
 from models import User, Game, Booking, UserIdentity
 
+import os
+from dotenv import load_dotenv
+
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
@@ -64,6 +67,20 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
+    # 1. Загружаем переменные из .env
+    load_dotenv()
+
+    # 2. Собираем URL из тех же переменных, что и для базы
+    user = os.getenv("POSTGRES_USER")
+    password = os.getenv("POSTGRES_PASSWORD")
+    host = os.getenv("POSTGRES_HOST", "localhost")
+    db_name = os.getenv("POSTGRES_DB")
+
+    database_url = f"postgresql://{user}:{password}@{host}:5432/{db_name}"
+
+    # 3. Передаем этот URL в конфиг Alembic прямо перед запуском
+    config.set_main_option("sqlalchemy.url", database_url)
+
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",

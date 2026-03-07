@@ -6,26 +6,19 @@ from typing import List, Optional
 
 class UserBase(BaseModel):
     email: str
-    full_name: str
     role: str = "игрок"
 
 class UserShort(BaseModel):
     id: int
-    full_name: str
     email: str
     role: str
-
     class Config:
         from_attributes = True
 
 class User(UserBase):
     id: int
-    
     class Config:
         from_attributes = True
-
-class UserUpdate(BaseModel):
-    full_name: str = Field(..., min_length=2, max_length=100)
 
 # --- СХЕМЫ ИГР ---
 

@@ -1,9 +1,18 @@
+import os
+from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+# Убедись, что sessionmaker добавлен в импорт ниже:
+from sqlalchemy.orm import sessionmaker 
 
-# Твой адрес базы в Docker
-SQLALCHEMY_DATABASE_URL = "postgresql://user:password@localhost:5432/board_games"
+load_dotenv() # Загружает переменные из .env в систему
+
+user = os.getenv("POSTGRES_USER")
+password = os.getenv("POSTGRES_PASSWORD")
+host = os.getenv("POSTGRES_HOST")
+db_name = os.getenv("POSTGRES_DB")
+
+SQLALCHEMY_DATABASE_URL = f"postgresql://{user}:{password}@{host}:5432/{db_name}"
 
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
