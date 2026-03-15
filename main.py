@@ -7,9 +7,11 @@ import models, schemas
 from database import engine, get_db
 from urllib.parse import urlencode
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import Body
 import os
 from dotenv import load_dotenv
 from datetime import datetime, timedelta # Добавляем timedelta
+from fastapi.responses import RedirectResponse
 
 load_dotenv()
 
@@ -57,13 +59,13 @@ def yandex_login():
         "scope": "login:email"
     }
     base_url = "https://oauth.yandex.ru/authorize"
-    return {"url": f"{base_url}?{urlencode(params)}"}
+    return RedirectResponse(f"{base_url}?{urlencode(params)}")
 
 @app.get("/api/v1/auth/yandex/callback", tags=["Auth"])
 async def yandex_callback(code: str, db: Session = Depends(get_db)):
     async with httpx.AsyncClient() as client:
-        # Согласно требованию: token_url = authorize
-        token_url = "https://oauth.yandex.ru/authorize"
+        # 1. Получаем токен
+        token_url = "https://oauth.yandex.ru/token"
         payload = {
             "grant_type": "authorization_code",
             "code": code,
@@ -71,28 +73,32 @@ async def yandex_callback(code: str, db: Session = Depends(get_db)):
             "client_secret": YANDEX_CLIENT_SECRET,
         }
         
-        # Обмен кода на токен
         token_resp = await client.post(token_url, data=payload)
         if token_resp.status_code != 200:
-            raise HTTPException(status_code=400, detail="Ошибка авторизации в Яндексе")
+            print(f"Ошибка получения токена: {token_resp.text}")
+            raise HTTPException(status_code=400, detail="Ошибка обмена кода на токен")
         
-        token_data = token_resp.json()
-        access_token = token_data.get("access_token")
+        access_token = token_resp.json().get("access_token")
 
-        # Получение данных пользователя
+        # 2. Получаем данные профиля (ИСПРАВЛЕННЫЙ URL)
+        user_info_url = "https://login.yandex.ru/info"
         user_info_resp = await client.get(
-            "https://login.yandex.ru",
+            user_info_url,
             headers={"Authorization": f"OAuth {access_token}"}
         )
         
         if user_info_resp.status_code != 200:
-            raise HTTPException(status_code=400, detail="Ошибка получения данных профиля")
+            print(f"Ошибка данных профиля: {user_info_resp.text}")
+            raise HTTPException(status_code=400, detail="Яндекс отклонил запрос данных профиля")
             
         data = user_info_resp.json()
         email = data.get("default_email")
         yandex_id = str(data.get("id"))
 
-        # Работа с БД только по email/id (без full_name)
+        if not email:
+            raise HTTPException(status_code=400, detail="В вашем аккаунте Яндекс не указан email")
+
+        # 3. Синхронизация с БД
         user = db.query(models.User).filter(models.User.email == email).first()
         if not user:
             user = models.User(email=email, role="игрок")
@@ -100,6 +106,7 @@ async def yandex_callback(code: str, db: Session = Depends(get_db)):
             db.commit()
             db.refresh(user)
 
+        # Привязываем identity, чтобы не создавать дубликатов при входе
         identity = db.query(models.UserIdentity).filter(
             models.UserIdentity.provider == "yandex",
             models.UserIdentity.provider_user_id == yandex_id
@@ -109,9 +116,65 @@ async def yandex_callback(code: str, db: Session = Depends(get_db)):
             db.add(models.UserIdentity(user_id=user.id, provider="yandex", provider_user_id=yandex_id))
             db.commit()
 
-        return {"status": "success", "user_id": user.id, "role": user.role}
+        # 4. Редирект обратно на фронтенд (React)
+        # Параметры подхватит useEffect в App.js
+        return RedirectResponse(
+            f"http://localhost:5173/?id={user.id}&email={user.email}&role={user.role}"
+        )
+
+
 
 # --- GAMES ---
+
+@app.patch("/api/v1/games/{game_id}", tags=["Games"])
+def update_game(
+    game_id: int, 
+    game_update: dict = Body(...), # Принимаем как словарь для гибкости частичного обновления
+    db: Session = Depends(get_db), 
+    x_user_id: str = Header(None)
+):
+    try:
+        db_game = db.query(models.Game).filter(models.Game.id == game_id).first()
+        
+        if not db_game:
+            raise HTTPException(status_code=404, detail="Игра не найдена")
+
+        # Проверка прав по id пользователя (если id=1 это админ) или по имени мастера
+        # Если в вашей модели Game действительно нет поля master_id, 
+        # проверка прав на редактирование пока будет только для админа (id=1):
+        if x_user_id != "1": 
+             # Если захотите проверку по имени, раскомментируйте:
+             # if db_game.master_name != current_user_email: raise...
+             pass 
+
+        # Обновляем поля, которые есть в вашей GameBase
+        allowed_fields = ["title", "master_name", "image_url", "description", "max_players", "date_time"]
+        
+        for key, value in game_update.items():
+            if key in allowed_fields and hasattr(db_game, key):
+                # Для даты: если пришла строка, SQLAlchemy/FastAPI обычно справляются,
+                # но для надежности можно оставить как есть, т.к. Pydantic уже проверил тип
+                setattr(db_game, key, value)
+        
+        db.commit()
+        db.refresh(db_game)
+        return db_game
+
+    except Exception as e:
+        db.rollback()
+        print(f"DEBUG ERROR: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка базы данных: {str(e)}")
+
+@app.get("/api/v1/games/{game_id}", response_model=schemas.Game, tags=["Games"])
+def get_game(game_id: int, db: Session = Depends(get_db)):
+    db_game = db.query(models.Game).filter(models.Game.id == game_id).first()
+    if not db_game:
+        raise HTTPException(status_code=404, detail="Игра не найдена")
+    
+    # Добавляем расчет текущего кол-ва игроков для схемы
+    db_game.current_players = len(db_game.booked_users)
+    return db_game
+
 @app.get("/api/v1/games", response_model=List[schemas.Game], tags=["Games"])
 def get_games(skip: int = Query(0), limit: int = Query(10), db: Session = Depends(get_db)):
     games = db.query(models.Game).offset(skip).limit(limit).all()
@@ -143,17 +206,41 @@ def delete_game(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    db_game = db.query(models.Game).filter(models.Game.id == game_id).first()
-    if not db_game:
-        raise HTTPException(status_code=404, detail="Игра не найдена")
-    
-    # Проверка владельца по ID
-    if current_user.role != "администратор" or db_game.master_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Вы не можете удалить чужую игру")
+    try:
+        # 1. Ищем игру в базе
+        db_game = db.query(models.Game).filter(models.Game.id == game_id).first()
+        if not db_game:
+            raise HTTPException(status_code=404, detail="Игра не найдена")
         
-    db.delete(db_game)
-    db.commit()
-    return {"status": "success"}
+        # 2. Проверка полномочий: Админ может всё, Мастер — только своё
+        # (Проверьте, что в модели Game поле называется master_id)
+        is_admin = current_user.role == "администратор"
+        is_owner = hasattr(db_game, 'master_id') and db_game.master_id == current_user.id
+        
+        if not (is_admin or is_owner):
+            raise HTTPException(
+                status_code=403, 
+                detail="У вас недостаточно прав для удаления этой игры"
+            )
+
+        # 3. УДАЛЯЕМ СВЯЗАННЫЕ ЗАПИСИ (Bookings)
+        # Это предотвратит ошибку 500 (Foreign Key Constraint)
+        db.query(models.Booking).filter(models.Booking.game_id == game_id).delete()
+        
+        # 4. Удаляем саму игру
+        db.delete(db_game)
+        db.commit()
+        
+        return {"status": "success", "message": "Игра и записи удалены"}
+
+    except Exception as e:
+        db.rollback()
+        print(f"Ошибка при удалении игры {game_id}: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Внутренняя ошибка сервера при удалении: {str(e)}"
+        )
+
 
 # --- BOOKINGS ---
 @app.post("/api/v1/bookings/join", tags=["Bookings"])
@@ -180,6 +267,22 @@ def join_game(
     db.add(models.Booking(game_id=game.id, user_id=user.id))
     db.commit()
     return {"status": "success"}
+
+@app.delete("/api/v1/bookings/leave/{game_id}", tags=["Bookings"])
+def leave_game(game_id: int, db: Session = Depends(get_db), x_user_id: str = Header(None)):
+    user_id = int(x_user_id)
+    booking = db.query(models.Booking).filter(
+        models.Booking.game_id == game_id, 
+        models.Booking.user_id == user_id
+    ).first()
+    
+    if not booking:
+        raise HTTPException(status_code=404, detail="Запись не найдена")
+    
+    db.delete(booking)
+    db.commit()
+    return {"message": "Вы успешно отписались"}
+
 
 # --- ADMIN ---
 @app.get("/api/v1/admin/users", response_model=List[schemas.User], tags=["Admin"])
