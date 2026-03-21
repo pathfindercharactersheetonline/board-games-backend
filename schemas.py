@@ -7,6 +7,8 @@ from typing import List, Optional
 class UserBase(BaseModel):
     email: str
     role: str = "игрок"
+    # Добавляем поле, чтобы знать, через какой сервис зашел пользователь
+    auth_provider: Optional[str] = None 
 
 class UserShort(BaseModel):
     id: int
@@ -17,8 +19,11 @@ class UserShort(BaseModel):
 
 class User(UserBase):
     id: int
+    # Добавляем ID провайдера, чтобы он был доступен в полной модели пользователя
+    provider_user_id: Optional[str] = None 
     class Config:
         from_attributes = True
+
 
 # --- СХЕМЫ ИГР ---
 

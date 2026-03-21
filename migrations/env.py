@@ -10,7 +10,7 @@ from os.path import abspath, dirname
 sys.path.insert(0, dirname(dirname(abspath(__file__))))
 
 from database import Base
-from models import User, Game, Booking, UserIdentity
+from models import User, Game, Booking
 
 import os
 from dotenv import load_dotenv

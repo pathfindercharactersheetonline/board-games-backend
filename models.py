@@ -4,27 +4,17 @@ from database import Base
 
 class User(Base):
     __tablename__ = "users"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, index=True, nullable=False)
     role = Column(String, default="игрок")  # игрок, мастер, администратор
     
-    # Связи
-    identities = relationship("UserIdentity", back_populates="user", cascade="all, delete-orphan")
+    # Поля для OAuth (теперь здесь)
+    auth_provider = Column(String, nullable=True) # например, "yandex"
+    provider_user_id = Column(String, unique=True, index=True, nullable=True)
+
+    # Связи остаются прежними
     bookings = relationship("Booking", back_populates="user")
-
-class UserIdentity(Base):
-    __tablename__ = "user_identities"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    provider = Column(String, nullable=False)  # 'yandex', 'google', 'vk' и т.д.
-    provider_user_id = Column(String, nullable=False) # ID внутри провайдера
-    
-    user = relationship("User", back_populates="identities")
-
-    # Уникальность: один провайдер не может иметь два одинаковых ID для разных людей
-    __table_args__ = (UniqueConstraint('provider', 'provider_user_id', name='_provider_user_uc'),)
 
 class Game(Base):
     __tablename__ = "games"

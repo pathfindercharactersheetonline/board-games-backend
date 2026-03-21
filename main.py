@@ -18,8 +18,15 @@ load_dotenv()
 # --- КОНФИГУРАЦИЯ ---
 YANDEX_CLIENT_ID = os.getenv("YANDEX_CLIENT_ID")
 YANDEX_CLIENT_SECRET = os.getenv("YANDEX_CLIENT_SECRET")
-# Согласно требованию:
-YANDEX_REDIRECT_URI = "http://127.0.0.1:8000/api/v1/auth/yandex/callback"
+BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
+YANDEX_REDIRECT_URI = f"{BACKEND_URL}/api/v1/auth/yandex/callback"
+# Адрес фронтенда для редиректа после логина
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+# API Яндекса (с дефолтными значениями)
+YANDEX_AUTH_URL = os.getenv("YANDEX_AUTH_URL", "https://oauth.yandex.ru/authorize")
+YANDEX_TOKEN_URL = os.getenv("YANDEX_TOKEN_URL", "https://oauth.yandex.ru/token")
+YANDEX_INFO_URL = os.getenv("YANDEX_INFO_URL", "https://login.yandex.ru/info")
+
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -58,14 +65,14 @@ def yandex_login():
         "redirect_uri": YANDEX_REDIRECT_URI,
         "scope": "login:email"
     }
-    base_url = "https://oauth.yandex.ru/authorize"
+    base_url = YANDEX_AUTH_URL
     return RedirectResponse(f"{base_url}?{urlencode(params)}")
 
 @app.get("/api/v1/auth/yandex/callback", tags=["Auth"])
 async def yandex_callback(code: str, db: Session = Depends(get_db)):
     async with httpx.AsyncClient() as client:
         # 1. Получаем токен
-        token_url = "https://oauth.yandex.ru/token"
+        token_url = YANDEX_TOKEN_URL
         payload = {
             "grant_type": "authorization_code",
             "code": code,
@@ -81,7 +88,7 @@ async def yandex_callback(code: str, db: Session = Depends(get_db)):
         access_token = token_resp.json().get("access_token")
 
         # 2. Получаем данные профиля (ИСПРАВЛЕННЫЙ URL)
-        user_info_url = "https://login.yandex.ru/info"
+        user_info_url = YANDEX_INFO_URL
         user_info_resp = await client.get(
             user_info_url,
             headers={"Authorization": f"OAuth {access_token}"}
@@ -92,78 +99,89 @@ async def yandex_callback(code: str, db: Session = Depends(get_db)):
             raise HTTPException(status_code=400, detail="Яндекс отклонил запрос данных профиля")
             
         data = user_info_resp.json()
-        email = data.get("default_email")
+        email = data.get("default_email") or data.get("emails")[0] if data.get("emails") else None
         yandex_id = str(data.get("id"))
 
         if not email:
-            raise HTTPException(status_code=400, detail="В вашем аккаунте Яндекс не указан email")
+            raise HTTPException(status_code=400, detail="Яндекс не предоставил email")
 
-        # 3. Синхронизация с БД
-        user = db.query(models.User).filter(models.User.email == email).first()
-        if not user:
-            user = models.User(email=email, role="игрок")
-            db.add(user)
-            db.commit()
-            db.refresh(user)
+        # 3. Логика БД в блоке try, чтобы не гадать об ошибках
+        try:
+            # Ищем по паре провайдер + id
+            user = db.query(models.User).filter(
+                models.User.auth_provider == "yandex",
+                models.User.provider_user_id == yandex_id
+            ).first()
 
-        # Привязываем identity, чтобы не создавать дубликатов при входе
-        identity = db.query(models.UserIdentity).filter(
-            models.UserIdentity.provider == "yandex",
-            models.UserIdentity.provider_user_id == yandex_id
-        ).first()
-        
-        if not identity:
-            db.add(models.UserIdentity(user_id=user.id, provider="yandex", provider_user_id=yandex_id))
-            db.commit()
+            if not user:
+                # Проверка по email (на случай если зашел впервые, но email уже в базе)
+                user = db.query(models.User).filter(models.User.email == email).first()
+                
+                if not user:
+                    user = models.User(
+                        email=email, 
+                        role="игрок",
+                        auth_provider="yandex",
+                        provider_user_id=yandex_id
+                    )
+                    db.add(user)
+                else:
+                    # Привязываем данные Яндекса к существующему юзеру
+                    user.auth_provider = "yandex"
+                    user.provider_user_id = yandex_id
+                
+                db.commit()
+                db.refresh(user)
+        except Exception as e:
+            db.rollback()
+            print(f"Database sync error: {e}")
+            raise HTTPException(status_code=500, detail="Ошибка сохранения пользователя в базе")
 
-        # 4. Редирект обратно на фронтенд (React)
-        # Параметры подхватит useEffect в App.js
+        # 4. Редирект на фронтенд (добавляем provider для консистентности фронта)
         return RedirectResponse(
-            f"http://localhost:5173/?id={user.id}&email={user.email}&role={user.role}"
+            f"{FRONTEND_URL}/?id={user.id}&email={user.email}&role={user.role}&provider=yandex"
         )
 
 
 
 # --- GAMES ---
 
-@app.patch("/api/v1/games/{game_id}", tags=["Games"])
+@app.patch("/api/v1/games/{game_id}", response_model=schemas.Game)
 def update_game(
     game_id: int, 
-    game_update: dict = Body(...), # Принимаем как словарь для гибкости частичного обновления
+    game_update: schemas.GameCreate, 
     db: Session = Depends(get_db), 
     x_user_id: str = Header(None)
 ):
-    try:
-        db_game = db.query(models.Game).filter(models.Game.id == game_id).first()
-        
-        if not db_game:
-            raise HTTPException(status_code=404, detail="Игра не найдена")
+    # 1. Получаем игру из базы
+    db_game = db.query(models.Game).filter(models.Game.id == game_id).first()
+    if not db_game:
+        raise HTTPException(status_code=404, detail="Игра не найдена")
 
-        # Проверка прав по id пользователя (если id=1 это админ) или по имени мастера
-        # Если в вашей модели Game действительно нет поля master_id, 
-        # проверка прав на редактирование пока будет только для админа (id=1):
-        if x_user_id != "1": 
-             # Если захотите проверку по имени, раскомментируйте:
-             # if db_game.master_name != current_user_email: raise...
-             pass 
+    # 2. Получаем текущего пользователя для проверки прав
+    current_user = db.query(models.User).filter(models.User.id == int(x_user_id)).first()
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Пользователь не авторизован")
 
-        # Обновляем поля, которые есть в вашей GameBase
-        allowed_fields = ["title", "master_name", "image_url", "description", "max_players", "date_time"]
-        
-        for key, value in game_update.items():
-            if key in allowed_fields and hasattr(db_game, key):
-                # Для даты: если пришла строка, SQLAlchemy/FastAPI обычно справляются,
-                # но для надежности можно оставить как есть, т.к. Pydantic уже проверил тип
-                setattr(db_game, key, value)
-        
-        db.commit()
-        db.refresh(db_game)
-        return db_game
+    # 3. ПРОВЕРКА ПРАВ:
+    # Разрешаем, если пользователь — админ ИЛИ если он мастер этой конкретной игры
+    is_admin = current_user.role == "администратор"
+    is_master_of_game = db_game.master_name == current_user.email
 
-    except Exception as e:
-        db.rollback()
-        print(f"DEBUG ERROR: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Ошибка базы данных: {str(e)}")
+    if not (is_admin or is_master_of_game):
+        raise HTTPException(
+            status_code=403, 
+            detail="У вас недостаточно прав для редактирования этой игры"
+        )
+
+    # 4. Обновление полей
+    for key, value in game_update.dict().items():
+        setattr(db_game, key, value)
+
+    db.commit()
+    db.refresh(db_game)
+    return db_game
+
 
 @app.get("/api/v1/games/{game_id}", response_model=schemas.Game, tags=["Games"])
 def get_game(game_id: int, db: Session = Depends(get_db)):
