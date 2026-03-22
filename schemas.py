@@ -40,6 +40,7 @@ class GameCreate(GameBase):
 
 class Game(GameBase):
     id: int
+    creator_id: Optional[int] = None
     current_players: int = 0
     booked_users: List[UserShort] = [] # Ссылается на UserShort, объявленный выше
 

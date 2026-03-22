@@ -26,6 +26,8 @@ class Game(Base):
     description = Column(Text)
     max_players = Column(Integer)
     date_time = Column(DateTime)
+    creator_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    creator = relationship("User", foreign_keys=[creator_id])
     
     bookings = relationship("Booking", back_populates="game", cascade="all, delete-orphan")
 
