@@ -1,19 +1,20 @@
 from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import List, Optional
+from models import UserRole
 
 # --- СХЕМЫ ПОЛЬЗОВАТЕЛЕЙ ---
 
 class UserBase(BaseModel):
     email: str
-    role: str = "игрок"
+    role: UserRole = UserRole.PLAYER
     # Добавляем поле, чтобы знать, через какой сервис зашел пользователь
     auth_provider: Optional[str] = None 
 
 class UserShort(BaseModel):
     id: int
     email: str
-    role: str
+    role: UserRole
     class Config:
         from_attributes = True
 

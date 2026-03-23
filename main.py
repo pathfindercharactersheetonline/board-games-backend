@@ -12,6 +12,20 @@ from dotenv import load_dotenv
 from datetime import datetime, timedelta 
 from fastapi.responses import RedirectResponse
 import jwt
+import logging
+from models import UserRole 
+
+# Настройка базового конфига
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[
+        logging.StreamHandler(), # Вывод в консоль (для Docker)
+        logging.FileHandler("app.log") # Запись в файл для истории
+    ]
+)
+
+logger = logging.getLogger("api_logger")
 
 load_dotenv()
 
@@ -75,7 +89,7 @@ def get_current_user(db: Session = Depends(get_db), authorization: str = Header(
     return user
 
 def get_admin_only(user: models.User = Depends(get_current_user)):
-    if user.role != "администратор":
+    if user.role != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Требуются права администратора")
     return user
 
@@ -125,7 +139,7 @@ async def yandex_callback(code: str, db: Session = Depends(get_db), state: str =
         
         token_resp = await client.post(token_url, data=payload)
         if token_resp.status_code != 200:
-            print(f"Ошибка получения токена: {token_resp.text}")
+            logger.exception(f"Ошибка получения токена: {token_resp.text}")
             raise HTTPException(status_code=400, detail="Ошибка обмена кода на токен")
         
         access_token = token_resp.json().get("access_token")
@@ -142,7 +156,7 @@ async def yandex_callback(code: str, db: Session = Depends(get_db), state: str =
         )
         
         if user_info_resp.status_code != 200:
-            print(f"Ошибка данных профиля: {user_info_resp.text}")
+            logger.exception(f"Ошибка данных профиля: {user_info_resp.text}")
             raise HTTPException(status_code=400, detail="Яндекс отклонил запрос данных профиля")
             
         data = user_info_resp.json()
@@ -167,7 +181,7 @@ async def yandex_callback(code: str, db: Session = Depends(get_db), state: str =
                 if not user:
                     user = models.User(
                         email=email, 
-                        role="игрок",
+                        role=UserRole.PLAYER,
                         auth_provider="yandex",
                         provider_user_id=yandex_id
                     )
@@ -181,7 +195,7 @@ async def yandex_callback(code: str, db: Session = Depends(get_db), state: str =
                 db.refresh(user)
         except Exception as e:
             db.rollback()
-            print(f"Database sync error: {e}")
+            logger.exception(f"Database sync error: {e}")
             raise HTTPException(status_code=500, detail="Ошибка сохранения пользователя в базе")
 
         # 4. Редирект на фронтенд (добавляем provider для консистентности фронта)
@@ -218,7 +232,7 @@ def update_game(
         raise HTTPException(status_code=404, detail="Игра не найдена")
 
     # 2. ПРОВЕРКА ПРАВ (current_user уже проверен внутри Depends)
-    is_admin = current_user.role == "администратор"
+    is_admin = current_user.role == UserRole.ADMIN
     
     # СОВЕТ: Лучше проверять по creator_id, который мы добавили ранее, 
     # а не по master_name (имя может измениться, а ID — нет)
@@ -282,7 +296,7 @@ def create_game(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    if current_user.role not in ["мастер", "администратор"]:
+    if current_user.role not in [UserRole.MASTER, UserRole.ADMIN]:
         raise HTTPException(status_code=403, detail="Недостаточно прав для создания игры")
     
     # Создаем объект игры из пришедших данных
@@ -314,7 +328,7 @@ def delete_game(
         
         # 2. Проверка полномочий: Админ может всё, Мастер — только своё
         # (Проверьте, что в модели Game поле называется master_id)
-        is_admin = current_user.role == "администратор"
+        is_admin = current_user.role == UserRole.ADMIN
         is_owner = db_game.creator_id == current_user.id
         
         if not (is_admin or is_owner):
@@ -335,7 +349,7 @@ def delete_game(
 
     except Exception as e:
         db.rollback()
-        print(f"Ошибка при удалении игры {game_id}: {str(e)}")
+        logger.exception(f"Ошибка при удалении игры {game_id}: {str(e)}")
         raise HTTPException(
             status_code=500, 
             detail=f"Внутренняя ошибка сервера при удалении: {str(e)}"
@@ -409,7 +423,7 @@ def cancel_booking_admin(
         raise HTTPException(status_code=404, detail="Игра не найдена")
 
     # 2. Проверка прав (админ или мастер игры)
-    if current_user.role != "администратор" and game.creator_id != current_user.id:
+    if current_user.role != UserRole.ADMIN and game.creator_id != current_user.id:
         raise HTTPException(status_code=403, detail="Нет прав на удаление игрока")
 
     # 3. Ищем запись о бронировании
@@ -434,7 +448,7 @@ def cancel_booking_admin(
         return {"status": "success", "message": "Игрок удален"}
     except Exception as e:
         db.rollback()
-        print(f"Ошибка БД: {e}") # Увидишь в терминале Python
+        logger.exception(f"Ошибка БД: {e}") # Увидишь в терминале Python
         raise HTTPException(status_code=500, detail="Ошибка базы данных")
 
 # --- ADMIN ---
