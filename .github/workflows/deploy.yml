@@ -8,6 +8,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: PROD 
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@master
@@ -23,7 +24,7 @@ jobs:
             git pull origin main
             
             # 3. Создаем .env из секретов
-            echo "${{ secrets.ENV_FILE_BACKEND }}" > .env
+            echo "${{ secrets.ENV_FILE }}" > .env
             
             # 4. Перезапускаем контейнеры (Бэк, БД и Nginx)
             # Внимание: сеть proxy_network должна быть уже создана вручную на VPS!
