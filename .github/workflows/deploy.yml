@@ -1,34 +1,8 @@
-name: Deploy Backend
-on:
-  push:
-    branches: [ main ]
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    environment: PROD 
-    steps:
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@master
-        with:
-          host: ${{ secrets.HOST }}
-          username: ${{ secrets.USERNAME }}
-          key: ${{ secrets.SSH_KEY }}
           script: |
-            # 1. Заходим в папку проекта
-            cd ~/my_app/
-            
-            # 2. Обновляем код бэкенда
-            cd backend-project
+            cd ~/my_app/backend-project
             git pull origin main
+            echo "${{ secrets.ENV_FILE_BACKEND }}" > .env
             
-            # 3. Копируем актуальный .env в корень (где лежит docker-compose.yml)
-            # Это важно, так как ваш docker-compose.yml ссылается на .env
-            echo "${{ secrets.ENV_FILE }}" > .env
-            cp .env ../.env
-            
-            # 4. Возвращаемся в корень и перезапускаем сервисы
-            cd ..
-            docker compose up -d --build backend db
-            
-            # 5. Очистка старых образов
-            docker image prune -f
+            # Запускаем только то, что описано в ЭТОМ docker-compose.yml
+            # (База, Бэкенд и Nginx)
+            docker compose up -d --build

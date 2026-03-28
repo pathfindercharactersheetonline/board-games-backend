@@ -1,15 +1,46 @@
 version: '3.8'
+
 services:
   db:
     image: postgres:15
     container_name: board_games_db
     restart: always
     env_file:
-      - .env  # <--- Докер сам прочитает переменные из этого файла
-    ports:
-      - "${POSTGRES_PORT}:${POSTGRES_PORT}"
+      - .env
+    # Порты БД наружу лучше не открывать (безопасность), 
+    # бэкенд увидит её внутри сети по имени 'db'
+    networks:
+      - proxy_network
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  backend:
+    build: .
+    container_name: board_games_backend
+    restart: always
+    env_file:
+      - .env
+    networks:
+      - proxy_network
+    depends_on:
+      - db
+
+  nginx:
+    image: nginx:stable-alpine
+    container_name: board_games_nginx
+    restart: always
+    ports:
+      - "80:80" # Открываем веб-порт для всего мира
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - proxy_network
+    depends_on:
+      - backend
+
 volumes:
   postgres_data:
+
+networks:
+  proxy_network:
+    external: true # Говорим, что сеть создана нами вручную на сервере

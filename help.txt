@@ -23,3 +23,14 @@ git branch -M main
 git add .
 git commit -m "Backend with Yandex OAuth and DB working"
 git push -u origin main
+
+
+Настройки хостов:
+POSTGRES_DB=board_games
+POSTGRES_PORT=5432
+POSTGRES_HOST=db
+
+# Параметры приложения
+FRONTEND_URL=http://141.8.199.42
+BACKEND_URL=http://141.8.199.42
+ALLOWED_HOSTS=141.8.199.42,localhost,backend
