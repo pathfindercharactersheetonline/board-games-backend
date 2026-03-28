@@ -1,0 +1,20 @@
+name: Deploy Backend
+on:
+  push:
+    branches: [ main ]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            cd ~/my_app/backend-project  # ЗАХОДИМ В ПАПКУ БЭКА
+            git pull origin main         # ОБНОВЛЯЕМ КОД
+            echo "${{ secrets.ENV_FILE }}" > .env # ОБНОВЛЯЕМ СЕКРЕТЫ
+            cd ..                        # ВЫХОДИМ В КОРЕНЬ (ГДЕ DOCKER-COMPOSE)
+            docker-compose up -d --build backend # ПЕРЕЗАПУСКАЕМ ТОЛЬКО БЭК
