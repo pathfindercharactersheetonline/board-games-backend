@@ -18,4 +18,4 @@ jobs:
             git pull origin main         # ОБНОВЛЯЕМ КОД
             echo "${{ secrets.ENV_FILE }}" > .env # ОБНОВЛЯЕМ СЕКРЕТЫ
             cd ..                        # ВЫХОДИМ В КОРЕНЬ (ГДЕ DOCKER-COMPOSE)
-            docker-compose up -d --build backend # ПЕРЕЗАПУСКАЕМ ТОЛЬКО БЭК
+            docker compose up -d --build backend # ПЕРЕЗАПУСКАЕМ ТОЛЬКО БЭК
