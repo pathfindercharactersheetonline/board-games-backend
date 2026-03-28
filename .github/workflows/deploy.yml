@@ -14,8 +14,14 @@ jobs:
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_KEY }}
           script: |
-            cd ~/my_app/backend-project  # ЗАХОДИМ В ПАПКУ БЭКА
-            git pull origin main         # ОБНОВЛЯЕМ КОД
-            echo "${{ secrets.ENV_FILE }}" > .env # ОБНОВЛЯЕМ СЕКРЕТЫ
-            cd ..                        # ВЫХОДИМ В КОРЕНЬ (ГДЕ DOCKER-COMPOSE)
-            docker compose up -d --build backend # ПЕРЕЗАПУСКАЕМ ТОЛЬКО БЭК
+            # Переходим в папку, где лежит docker-compose.yml
+            cd ~/my_app/
+            
+            # Обновляем код в подпапке бэкенда
+            cd backend-project
+            git pull origin main
+            echo "${{ secrets.ENV_FILE }}" > .env
+            
+            # Возвращаемся к docker-compose.yml и запускаем сборку
+            cd ..
+            docker compose up -d --build backend
