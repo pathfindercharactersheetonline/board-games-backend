@@ -43,6 +43,8 @@ YANDEX_INFO_URL = os.getenv("YANDEX_INFO_URL", "https://login.yandex.ru/info")
 SECRET_KEY = os.getenv("SECRET_KEY") 
 ALGORITHM = "HS256"
 
+ADMIN_EMAILS = os.getenv("ADMIN_EMAILS", "").split(",")
+
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
@@ -179,9 +181,10 @@ async def yandex_callback(code: str, db: Session = Depends(get_db), state: str =
                 user = db.query(models.User).filter(models.User.email == email).first()
                 
                 if not user:
+                    initial_role = UserRole.ADMIN if email in ADMIN_EMAILS else UserRole.PLAYER
                     user = models.User(
                         email=email, 
-                        role=UserRole.PLAYER,
+                        role=initial_role,
                         auth_provider="yandex",
                         provider_user_id=yandex_id
                     )

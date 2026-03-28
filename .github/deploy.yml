@@ -1,0 +1,33 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches:
+      - main  # Срабатывает при пуше в ветку main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Deploy to Server via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            # Переходим в папку проекта (создай её заранее на сервере)
+            cd ~/my-pet-project 
+            
+            # Обновляем код
+            git pull origin main
+            
+            # Записываем секреты в файл .env прямо на сервере
+            echo "${{ secrets.ENV_FILE }}" > .env
+            
+            # Пересобираем и запускаем контейнеры
+            docker-compose down
+            docker-compose up --build -d

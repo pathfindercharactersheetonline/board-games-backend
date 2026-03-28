@@ -17,3 +17,6 @@ migrations/versions/*.pyc
 .vscode/
 .idea/
 .DS_Store
+
+#Логи
+app.log
