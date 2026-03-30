@@ -7,15 +7,15 @@ services:
     restart: always
     env_file:
       - .env
-    # Порты БД наружу лучше не открывать (безопасность), 
-    # бэкенд увидит её внутри сети по имени 'db'
     networks:
       - proxy_network
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
   backend:
-    build: .
+    # Заменили 'build: .' на готовый образ. 
+    # Теперь сервер просто скачает его, а не будет мучиться со сборкой.
+    image: gennadypol/board-games-backend:latest
     container_name: board_games_backend
     restart: always
     env_file:
@@ -30,7 +30,7 @@ services:
     container_name: board_games_nginx
     restart: always
     ports:
-      - "80:80" # Открываем веб-порт для всего мира
+      - "80:80"
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     networks:
@@ -43,4 +43,4 @@ volumes:
 
 networks:
   proxy_network:
-    external: true # Говорим, что сеть создана нами вручную на сервере
+    external: true
