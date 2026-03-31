@@ -22,12 +22,11 @@ jobs:
         with:
           context: .
           push: true
-          # Замени 'ваш_логин' на свой ник в Docker Hub
           tags: gennadypol/board-games-backend:latest
 
   deploy:
     runs-on: ubuntu-latest
-    needs: build-and-push # Ждем, пока образ соберется и улетит в хаб
+    needs: build-and-push
     environment: PROD
     steps:
       - name: Deploy via SSH
@@ -37,12 +36,22 @@ jobs:
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_KEY }}
           script: |
-            cd ~/my_app/backend-project
-            git pull origin main
+            # 1. Заходим в общий корень проекта
+            cd ~/my_app
+            
+            # 2. Обновляем переменные окружения (секреты)
             echo "${{ secrets.ENV_FILE }}" > .env
-            # 1. Скачиваем новый образ из Docker Hub
+            
+            # 3. Подтягиваем свежий образ бэкенда
             docker compose pull backend
-            # 2. Перезапускаем контейнеры без пересборки на сервере
-            docker compose up -d backend db nginx
-            # 3. Очистка старых слоев
+            
+            # 4. Перезапускаем ТОЛЬКО бэкенд. 
+            # Флаг --no-deps не трогает базу и nginx, работа сайта не прерывается.
+            docker compose up -d --no-deps backend
+            
+            # 5. Запускаем миграции Alembic (если используешь их). 
+            # Флаг -T нужен для работы внутри скриптов GitHub Actions.
+            docker compose exec -T backend alembic upgrade head || echo "Миграции не применены или Alembic не настроен"
+            
+            # 6. Чистим диск от старых образов
             docker image prune -f
