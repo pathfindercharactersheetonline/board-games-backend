@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, Query, Header
+from fastapi import FastAPI, Depends, HTTPException, Query, Header, APIRouter, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import List
 import httpx
@@ -14,6 +14,9 @@ from fastapi.responses import RedirectResponse
 import jwt
 import logging
 from models import UserRole 
+import uuid
+from github import Github, GithubException
+
 
 # Настройка базового конфига
 logging.basicConfig(
@@ -44,6 +47,9 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = "HS256"
 
 ADMIN_EMAILS = os.getenv("ADMIN_EMAILS", "").split(",")
+
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN") 
+REPO_NAME = os.getenv("GITHUB_REPO_NAME") 
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -510,3 +516,59 @@ def cleanup_old_games(
         "deleted_count": deleted,
         "threshold_date": threshold_date.strftime("%Y-%m-%d %H:%M")
     }
+
+@app.post("/api/v1/upload-image")
+async def upload_image(
+    file: UploadFile = File(...),
+    current_user: models.User = Depends(get_current_user) 
+):
+    # Проверка типа файла
+    allowed_mime_types = {"image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml"}
+    if file.content_type not in allowed_mime_types:
+        raise HTTPException(status_code=400, detail="Недопустимый тип файла. Разрешены только изображения (JPEG, PNG, GIF, WEBP, SVG).")
+    
+    # Проверка размера файла (максимум 5 MB)
+    max_size = 5 * 1024 * 1024  # 5 MB
+    file_content = await file.read()
+    if len(file_content) > max_size:
+        raise HTTPException(status_code=400, detail="Файл слишком большой. Максимальный размер 5 MB.")
+    
+    # Генерируем уникальное имя файла
+    ext = file.filename.split('.')[-1] if '.' in file.filename else 'jpg'
+    filename = f"uploads/{uuid.uuid4()}.{ext}"
+    
+    try:
+        logger.info(f"Загрузка изображения {filename} пользователем {current_user.email}")
+        g = Github(GITHUB_TOKEN)
+        repo = g.get_repo(REPO_NAME)
+        
+        # Загружаем в GitHub
+        repo.create_file(
+            path=filename,
+            message=f"Upload image by {current_user.email}",
+            content=file_content,
+            branch="main"
+        )
+        
+        # Формируем прямую ссылку на картинку (raw.githubusercontent.com)
+        file_url = f"https://raw.githubusercontent.com/{REPO_NAME}/main/{filename}"
+        logger.info(f"Изображение успешно загружено: {file_url}")
+        
+        return {"image_url": file_url}
+    except GithubException as ge:
+        logger.error(f"GitHub API error: {ge.status} - {ge.data}")
+        if ge.status == 403:
+            raise HTTPException(
+                status_code=403,
+                detail="Доступ запрещен. Проверьте токен GitHub и права на запись в репозиторий."
+            )
+        elif ge.status == 404:
+            raise HTTPException(
+                status_code=404,
+                detail="Репозиторий не найден. Проверьте название репозитория."
+            )
+        else:
+            raise HTTPException(status_code=500, detail=f"Ошибка GitHub API: {ge.status}")
+    except Exception as e:
+        logger.exception(f"Неизвестная ошибка при загрузке изображения: {e}")
+        raise HTTPException(status_code=500, detail=f"Внутренняя ошибка сервера: {str(e)}")
