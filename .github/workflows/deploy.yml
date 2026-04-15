@@ -40,7 +40,11 @@ jobs:
             cd ~/my_app
             
             # 2. Обновляем переменные окружения (секреты)
-            echo "${{ secrets.ENV_FILE }}" > .env
+            # Убеждаемся, что директория существует
+            mkdir -p backend-project
+            
+            # Записываем секреты ровно туда, где их ждет docker-compose
+            echo "${{ secrets.ENV_FILE }}" > ./backend-project/.env
             
             # 3. Подтягиваем свежий образ бэкенда
             docker compose pull backend
